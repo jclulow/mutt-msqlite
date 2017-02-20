@@ -1,1 +1,6 @@
 *.zip
+*.a
+*.o
+Makefile.in
+Makefile
+.deps/

@@ -17,16 +17,24 @@
 
 #include "sqlite3.h"
 
+#include <sys/time.h>
+
 
 typedef struct msqlite {
 	CONTEXT *msql_ctx;
-	int msql_checks;
 
 	sqlite3 *msql_db;
 
 	char *msql_file;
 	char *msql_mbox;
+
+	hrtime_t msql_last_check;
 } msqlite_t;
+
+typedef struct msqlite_data {
+	char *msqd_message_id;
+	char *msqd_history_id;
+} msqlite_data_t;
 
 static int
 mx_parse_sqlite_path(const char *path, char **file, char **mbox)
@@ -462,9 +470,10 @@ out:
 	"	mr.id = ?\n"
 
 static int
-flags_from_db(msqlite_t *msql, const char *msg_id, HEADER *h)
+flags_from_db(msqlite_t *msql, const char *msg_id, HEADER *h, int *did_update)
 {
 	sqlite3_stmt *stmt;
+	int orig_read, orig_flagged;
 
 	if (sqlite3_prepare_v2(msql->msql_db, QUERY_MESSAGE_LABELS,
 	    strlen(QUERY_MESSAGE_LABELS), &stmt, NULL) != SQLITE_OK) {
@@ -482,6 +491,9 @@ flags_from_db(msqlite_t *msql, const char *msg_id, HEADER *h)
 		mutt_sleep(1);
 		return (-1);
 	}
+
+	orig_read = h->read;
+	orig_flagged = h->flagged;
 
 	h->read = 1;
 	h->flagged = 0;
@@ -503,6 +515,11 @@ flags_from_db(msqlite_t *msql, const char *msg_id, HEADER *h)
 		mutt_sleep(2);
 		sqlite3_finalize(stmt);
 		return (-1);
+	}
+
+	if (did_update != NULL) {
+		if (orig_read != h->read || orig_flagged != h->flagged)
+			*did_update = 1;
 	}
 
 	sqlite3_finalize(stmt);
@@ -591,10 +608,11 @@ fetch_from_db(msqlite_t *msql, const char *msg_id, FILE *fp)
 	return (0);
 }
 
-#if 0
+#if 1
 #define	QUERY_LABEL_MESSAGE_LIST \
 	"SELECT\n" \
-	"	m.id\n" \
+	"	m.id,\n" \
+	"	m.history_id\n" \
 	"FROM\n" \
 	"	message m INNER JOIN message_to_label mtl\n" \
 	"		ON (m.id = mtl.message_id)\n" \
@@ -623,13 +641,18 @@ fetch_from_db(msqlite_t *msql, const char *msg_id, FILE *fp)
 	"	m.id ASC\n"
 
 static int
-get_from_db(msqlite_t *msql, const char *label_id)
+get_from_db(msqlite_t *msql, const char *label_id, int *new_mail)
 {
 	CONTEXT *ctx = msql->msql_ctx;
 	sqlite3_stmt *stmt;
 	int r;
 	FILE *fp;
+	int updated_flags = 0;
+	int updated_mail = 0;
 
+	*new_mail = 0;
+
+	mutt_message(_("make message tempfile"));
 	if (make_message_tempfile(&fp) != 0) {
 		return (-1);
 	}
@@ -657,12 +680,54 @@ get_from_db(msqlite_t *msql, const char *label_id)
 
 	int count = 0;
 	while ((r = sqlite3_step(stmt)) == SQLITE_ROW) {
+		msqlite_data_t *msqd = NULL;
 		const char *msg_id = (const char *)sqlite3_column_text(
 		    stmt, 0);
+		const char *hist_id = (const char *)sqlite3_column_text(
+		    stmt, 1);
 
+		/*
+		 * First, check to see if we already have this message
+		 * loaded.
+		 */
+		int found = -1;
+		for (int i = 0; i < ctx->msgcount; i++) {
+			msqd = ctx->hdrs[i]->data;
+
+			if (strcmp(msqd->msqd_message_id, msg_id) == 0) {
+				/*
+				 * We have a match!
+				 */
+				found = i;
+				break;
+			}
+		}
+
+		if (found != -1) {
+			/*
+			 * This message existed already.  Just update the
+			 * flags.
+			 */
+			if (flags_from_db(msql, msg_id, ctx->hdrs[found],
+			    &updated_flags) != 0) {
+				mutt_message("update flags failure (msg %s)",
+				    msg_id);
+				mutt_sleep(2);
+			}
+			continue;
+		}
+
+		/*
+		 * This is a new message.  Fetch the entire contents from
+		 * the database.
+		 */
 		rewind(fp);
 		if (fetch_from_db(msql, msg_id, fp) != 0) {
 			continue;
+		}
+
+		if (ctx->msgcount + 1 >= ctx->hdrmax) {
+			mx_alloc_memory(ctx);
 		}
 
 		ctx->msgcount++;
@@ -672,10 +737,6 @@ get_from_db(msqlite_t *msql, const char *label_id)
 			mutt_message("getting message headers (%d)...", idx);
 		}
 
-		if (ctx->hdrmax < idx + 25) {
-			mx_alloc_memory(ctx);
-		}
-
 		ctx->hdrs[idx] = mutt_new_header();
 
 		ctx->hdrs[idx]->index = idx;
@@ -683,11 +744,15 @@ get_from_db(msqlite_t *msql, const char *label_id)
 		/*
 		 * Get "read" and "flagged" from the DB:
 		 */
-		if (flags_from_db(msql, msg_id, ctx->hdrs[idx]) != 0) {
+		if (flags_from_db(msql, msg_id, ctx->hdrs[idx], NULL) != 0) {
 			safe_free(&ctx->hdrs[idx]);
 			ctx->msgcount--;
 			continue;
 		}
+
+		msqd = safe_calloc(1, sizeof (*msqd));
+		msqd->msqd_message_id = safe_strdup(msg_id);
+		msqd->msqd_history_id = safe_strdup(hist_id);
 
 		ctx->hdrs[idx]->active = 1;
 		ctx->hdrs[idx]->old = 0;
@@ -695,11 +760,13 @@ get_from_db(msqlite_t *msql, const char *label_id)
 		ctx->hdrs[idx]->replied = 0;
 		ctx->hdrs[idx]->changed = 0;
 		ctx->hdrs[idx]->received = 1462346271;
-		ctx->hdrs[idx]->data = safe_strdup(msg_id);
+		ctx->hdrs[idx]->data = msqd;
 
 		rewind(fp);
-		ctx->hdrs[idx]->env = mutt_read_rfc822_header(fp, ctx->hdrs[idx], 0, 0);
+		ctx->hdrs[idx]->env = mutt_read_rfc822_header(fp,
+		    ctx->hdrs[idx], 0, 0);
 
+		updated_mail = 1;
 		count++;
 	}
 
@@ -718,6 +785,9 @@ get_from_db(msqlite_t *msql, const char *label_id)
 	mutt_message(_("fclose"));
 
 	safe_fclose(&fp);
+
+	*new_mail = updated_mail ? M_NEW_MAIL : updated_flags ? M_FLAGS : 0;
+
 	return (0);
 }
 
@@ -726,42 +796,32 @@ msqlite_check_mailbox(CONTEXT *ctx, int *index_hint)
 {
 	msqlite_t *msql = ctx->data;
 
-	/*
-	 * We get here second!
-	 */
-
-	if (msql->msql_checks == 0) {
-#if 1
-		char *label_id;
-
-		/*
-		 * Determine the Label ID of the "folder" we are viewing:
-		 */
-		if ((label_id = get_label_id(msql, msql->msql_mbox)) == NULL) {
-			mutt_error("could not find label \"%s\"",
-			    msql->msql_mbox);
-			mutt_sleep(2);
-			return (-1);
+	if (msql->msql_last_check != 0) {
+		if (gethrtime() - msql->msql_last_check < 5000000000ULL) {
+			return (0);
 		}
-
-		/*
-		 * XXX Report new mail the first time!
-		 */
-		msql->msql_checks++;
-		get_from_db(msql, label_id);
-		safe_free(&label_id);
-		return (M_NEW_MAIL);
-#else
-		msql->msql_checks++;
-		get_from_db(msql, NULL);
-		return (M_NEW_MAIL);
-#endif
 	}
 
 	/*
-	 * XXX Report no change.
+	 * We get here second!
 	 */
-	return (0);
+	char *label_id;
+	int new_mail = 0;
+
+	/*
+	 * Determine the Label ID of the "folder" we are viewing:
+	 */
+	if ((label_id = get_label_id(msql, msql->msql_mbox)) == NULL) {
+		mutt_error("could not find label \"%s\"",
+		    msql->msql_mbox);
+		mutt_sleep(2);
+		return (-1);
+	}
+
+	get_from_db(msql, label_id, &new_mail);
+	safe_free(&label_id);
+	msql->msql_last_check = gethrtime();
+	return (new_mail);
 }
 
 int
@@ -778,12 +838,13 @@ msqlite_fetch_message(MESSAGE *msg, CONTEXT *ctx, int msgno)
 	 */
 
 	if (msg->fp == NULL) {
+		msqlite_data_t *msqd = h->data;
+
 		if (make_message_tempfile(&msg->fp) != 0) {
 			return (-1);
 		}
 
-		if (fetch_from_db(msql, (const char *)h->data,
-		    msg->fp) != 0) {
+		if (fetch_from_db(msql, msqd->msqd_message_id, msg->fp) != 0) {
 			return (-1);
 		}
 	}
