@@ -7,6 +7,7 @@ incrementally update the database.
 
 ## SQLite Schema
 
+```sql
 CREATE TABLE label (
 	id TEXT PRIMARY KEY,
 	name TEXT NOT NULL,
@@ -27,6 +28,7 @@ CREATE TABLE message_to_label (
 	message_id TEXT REFERENCES message (id) ON DELETE CASCADE,
 	label_id TEXT REFERENCES label (id) ON DELETE CASCADE,
 	PRIMARY KEY (message_id, label_id));
+```
 
 ## The Real Mutt
 
