@@ -192,6 +192,9 @@ folder_format_str (char *dest, size_t destlen, size_t col, char op, const char *
     case 'f':
     {
       char *s;
+      if (folder->ff->desc != NULL)
+	s = folder->ff->desc;
+      else
 #ifdef USE_IMAP
       if (folder->ff->imap)
 	s = NONULL (folder->ff->desc);
@@ -593,6 +596,14 @@ void _mutt_select_file (char *f, size_t flen, int flags, char ***files, int *num
   if (*f)
   {
     mutt_expand_path (f, flen);
+    if (mx_is_msqlite (f))
+    {
+      init_state (&state, NULL);
+      msqlite_browse (f, &state);
+      browser_sort (&state);
+    }
+    else
+    {
 #ifdef USE_IMAP
     if (mx_is_imap (f))
     {
@@ -636,6 +647,7 @@ void _mutt_select_file (char *f, size_t flen, int flags, char ***files, int *num
 #ifdef USE_IMAP
     }
 #endif
+    }
   }
   else 
   {
@@ -654,6 +666,13 @@ void _mutt_select_file (char *f, size_t flen, int flags, char ***files, int *num
     }
     else
 #endif
+    if (mx_is_msqlite (LastDir))
+    {
+      init_state (&state, NULL);
+      msqlite_browse (LastDir, &state);
+      browser_sort (&state);
+    }
+    else
     {
       i = mutt_strlen (LastDir);
       while (i && LastDir[--i] == '/')
@@ -674,6 +693,7 @@ void _mutt_select_file (char *f, size_t flen, int flags, char ***files, int *num
 #ifdef USE_IMAP
   if (!state.imap_browse)
 #endif
+  if (!mx_is_msqlite (LastDir))
   if (examine_directory (NULL, &state, LastDir, prefix) == -1)
     goto bail;
 

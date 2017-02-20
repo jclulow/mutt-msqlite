@@ -10,7 +10,10 @@ IMAP_SUBDIR = imap
 IMAP_INCLUDES = -I$(top_srcdir)/imap
 endif
 
-SUBDIRS = m4 po intl doc contrib $(IMAP_SUBDIR)
+SQLITE_SUBDIR = sqlite
+SQLITE_INCLUDES = -I$(top_srcdir)/sqlite
+
+SUBDIRS = m4 po intl doc contrib $(IMAP_SUBDIR) $(SQLITE_SUBDIR)
 
 bin_SCRIPTS = muttbug flea $(SMIMEAUX_TARGET)
 
@@ -48,7 +51,8 @@ DEFS=-DPKGDATADIR=\"$(pkgdatadir)\" -DSYSCONFDIR=\"$(sysconfdir)\" \
 	-DBINDIR=\"$(bindir)\" -DMUTTLOCALEDIR=\"$(datadir)/locale\" \
 	-DHAVE_CONFIG_H=1
 
-AM_CPPFLAGS=-I. -I$(top_srcdir) $(IMAP_INCLUDES) $(GPGME_CFLAGS) -Iintl
+AM_CPPFLAGS=-I. -I$(top_srcdir) $(IMAP_INCLUDES) $(SQLITE_INCLUDES) \
+	$(GPGME_CFLAGS) -Iintl
 
 EXTRA_mutt_SOURCES = account.c bcache.c crypt-gpgme.c crypt-mod-pgp-classic.c \
 	crypt-mod-pgp-gpgme.c crypt-mod-smime-classic.c \

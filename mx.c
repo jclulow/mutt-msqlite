@@ -30,6 +30,8 @@
 #include "keymap.h"
 #include "url.h"
 
+#include "msqlite.h"
+
 #ifdef USE_IMAP
 #include "imap.h"
 #endif
@@ -360,11 +362,20 @@ int mx_get_magic (const char *path)
     return M_POP;
 #endif /* USE_POP */
 
+  if (mx_is_msqlite (path))
+    return M_MSQLITE;
+
   if (stat (path, &st) == -1)
   {
     dprint (1, (debugfile, "mx_get_magic(): unable to stat %s: %s (errno %d).\n",
 		path, strerror (errno), errno));
     return (-1);
+  }
+
+  if (S_ISREG (st.st_mode))
+  {
+    if (mx_is_msqlite (path))
+      return M_MSQLITE;
   }
 
   if (S_ISDIR (st.st_mode))
@@ -430,6 +441,8 @@ int mx_set_magic (const char *s)
     DefaultMagic = M_MH;
   else if (ascii_strcasecmp (s, "maildir") == 0)
     DefaultMagic = M_MAILDIR;
+  else if (ascii_strcasecmp (s, "sqlite") == 0)
+    DefaultMagic = M_MSQLITE;
   else
     return (-1);
 
@@ -478,6 +491,13 @@ static int mx_open_mailbox_append (CONTEXT *ctx, int flags)
   else if (errno == ENOENT)
   {
     ctx->magic = DefaultMagic;
+
+    if (ctx->magic == M_MSQLITE)
+    {
+      errno = EINVAL;
+      mutt_perror (ctx->path);
+      return (-1);
+    }
 
     if (ctx->magic == M_MH || ctx->magic == M_MAILDIR)
     {
@@ -564,6 +584,9 @@ static int mx_open_mailbox_append (CONTEXT *ctx, int flags)
     case M_MAILDIR:
       /* nothing to do */
       break;
+
+    case M_MSQLITE:
+      return msqlite_open_mailbox_append (ctx);
 
     default:
       return (-1);
@@ -668,6 +691,10 @@ CONTEXT *mx_open_mailbox (const char *path, int flags, CONTEXT *pctx)
       break;
 #endif /* USE_POP */
 
+    case M_MSQLITE:
+      rc = msqlite_open_mailbox (ctx);
+      break;
+
     default:
       rc = -1;
       break;
@@ -764,6 +791,10 @@ static int sync_mailbox (CONTEXT *ctx, int *index_hint)
       rc = pop_sync_mailbox (ctx, index_hint);
       break;
 #endif /* USE_POP */
+
+    case M_MSQLITE:
+      rc = msqlite_sync_mailbox (ctx, index_hint);
+      break;
   }
 
 #if 0
@@ -1247,6 +1278,8 @@ MESSAGE *mx_open_new_message (CONTEXT *dest, HEADER *hdr, int flags)
       func = imap_open_new_message;
       break;
 #endif
+    case M_MSQLITE:
+      func = msqlite_open_new_message;
     default:
       dprint (1, (debugfile, "mx_open_new_message(): function unimplemented for mailbox type %d.\n",
 		  dest->magic));
@@ -1349,6 +1382,9 @@ int mx_check_mailbox (CONTEXT *ctx, int *index_hint, int lock)
       case M_POP:
 	return (pop_check_mailbox (ctx, index_hint));
 #endif /* USE_POP */
+
+      case M_MSQLITE:
+        return (msqlite_check_mailbox (ctx, index_hint));
     }
   }
 
@@ -1409,6 +1445,13 @@ MESSAGE *mx_open_message (CONTEXT *ctx, int msgno)
     }
 #endif /* USE_POP */
 
+    case M_MSQLITE:
+    {
+      if (msqlite_fetch_message (msg, ctx, msgno) != 0)
+	FREE (&msg);
+      break;
+    }
+
     default:
       dprint (1, (debugfile, "mx_open_message(): function not implemented for mailbox type %d.\n", ctx->magic));
       FREE (&msg);
@@ -1464,6 +1507,12 @@ int mx_commit_message (MESSAGE *msg, CONTEXT *ctx)
     case M_MH:
     {
       r = mh_commit_message (ctx, msg, NULL);
+      break;
+    }
+
+    case M_MSQLITE:
+    {
+      r = msqlite_commit_message(ctx, msg, NULL);
       break;
     }
   }
@@ -1618,6 +1667,8 @@ int mx_check_empty (const char *path)
       return mh_check_empty (path);
     case M_MAILDIR:
       return maildir_check_empty (path);
+    case M_MSQLITE:
+      return msqlite_check_empty (path);
     default:
       errno = EINVAL;
       return -1;

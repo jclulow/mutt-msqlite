@@ -843,6 +843,7 @@ int main (int argc, char **argv)
     /* we're not connected yet - skip mail folder creation */
     if (!mx_is_imap (fpath))
 #endif
+    if (!mx_is_msqlite (fpath))
     if (stat (fpath, &sb) == -1 && errno == ENOENT)
     {
       snprintf (msg, sizeof (msg), _("%s does not exist. Create it?"), Maildir);

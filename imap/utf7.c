@@ -24,7 +24,7 @@
 #include "charset.h"
 #include "imap_private.h"
 
-static const int Index_64[128] = {
+static const int AA_Index_64[128] = {
     -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
     -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
     -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,62, 63,-1,-1,-1,
@@ -77,7 +77,7 @@ static char *utf7_to_utf8 (const char *u7, size_t u7len, char **u8,
       k = 10;
       for (; u7len; u7++, u7len--)
       {
-	if ((*u7 & 0x80) || (b = Index_64[(int)*u7]) == -1)
+	if ((*u7 & 0x80) || (b = AA_Index_64[(int)*u7]) == -1)
 	  break;
 	if (k > 0)
 	{

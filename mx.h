@@ -35,7 +35,8 @@ enum
   M_MH,
   M_MAILDIR,
   M_IMAP,
-  M_POP
+  M_POP,
+  M_MSQLITE
 };
 
 WHERE short DefaultMagic INITVAL (M_MBOX);
