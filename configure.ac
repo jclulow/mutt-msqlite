@@ -588,6 +588,10 @@ AC_ARG_ENABLE(pop,  AS_HELP_STRING([--enable-pop],[Enable POP3 support]),
         fi
 ])
 
+LIBMSQLITE="-Lsqlite -lmsqlite"
+LIBMSQLITEDEPS="\$(top_srcdir)/sqlite/msqlite.h sqlite/libmsqlite.a"
+AM_CONDITIONAL(BUILD_MSQLITE, test xyes = xyes)
+
 AC_ARG_ENABLE(imap, AS_HELP_STRING([--enable-imap],[Enable IMAP support]),
 [       if test x$enableval = xyes ; then
                 AC_DEFINE(USE_IMAP,1,[ Define if you want support for the IMAP protocol. ])
@@ -1342,6 +1346,7 @@ if test x$full_doc != xno ; then
 fi
 
 AC_CONFIG_FILES(Makefile contrib/Makefile doc/Makefile imap/Makefile
+	sqlite/Makefile
         intl/Makefile m4/Makefile po/Makefile.in
         hcachever.sh muttbug.sh doc/instdoc.sh)
 AC_OUTPUT

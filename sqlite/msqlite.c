@@ -11,6 +11,10 @@
 #include "string.h"
 #include "strings.h"
 
+#ifdef	USE_HCACHE
+#include "hcache.h"
+#endif
+
 #include "sqlite3.h"
 
 
@@ -111,7 +115,7 @@ msqlite_hcache_name(const char *path, char *dest, size_t destsz)
 static header_cache_t *
 msqlite_hcache_open(msqlite_t *msql, const char *path)
 {
-	return (mutt_hcache_open(HeaderCache, cachepath, msqlite_hcache_name));
+	return (mutt_hcache_open(HeaderCache, path, msqlite_hcache_name));
 }
 
 static void

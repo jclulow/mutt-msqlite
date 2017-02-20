@@ -784,9 +784,7 @@ typedef struct header
   int refno;			/* message number on server */
 #endif
 
-#if defined USE_POP || defined USE_IMAP
   void *data;            	/* driver-specific data */
-#endif
   
   char *maildir_flags;		/* unknown maildir flags */
 } HEADER;

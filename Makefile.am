@@ -10,10 +10,12 @@ IMAP_SUBDIR = imap
 IMAP_INCLUDES = -I$(top_srcdir)/imap
 endif
 
-SQLITE_SUBDIR = sqlite
-SQLITE_INCLUDES = -I$(top_srcdir)/sqlite
+if BUILD_MSQLITE
+MSQLITE_SUBDIR = sqlite
+MSQLITE_INCLUDES = -I$(top_srcdir)/sqlite
+endif
 
-SUBDIRS = m4 po intl doc contrib $(IMAP_SUBDIR) $(SQLITE_SUBDIR)
+SUBDIRS = m4 po intl doc contrib $(IMAP_SUBDIR) $(MSQLITE_SUBDIR)
 
 bin_SCRIPTS = muttbug flea $(SMIMEAUX_TARGET)
 
@@ -41,17 +43,17 @@ mutt_SOURCES = \
 
 nodist_mutt_SOURCES = $(BUILT_SOURCES)
 
-mutt_LDADD = $(MUTT_LIB_OBJECTS) $(LIBOBJS) $(LIBIMAP) $(MUTTLIBS) \
-	$(INTLLIBS) $(LIBICONV)  $(GPGME_LIBS)
+mutt_LDADD = $(MUTT_LIB_OBJECTS) $(LIBOBJS) $(LIBIMAP) $(LIBMSQLITE) \
+	$(MUTTLIBS) $(INTLLIBS) $(LIBICONV) $(GPGME_LIBS)
 
 mutt_DEPENDENCIES = $(MUTT_LIB_OBJECTS) $(LIBOBJS) $(LIBIMAPDEPS) \
-	$(INTLDEPS)
+	$(LIBMSQLITEDEPS) $(INTLDEPS)
 
 DEFS=-DPKGDATADIR=\"$(pkgdatadir)\" -DSYSCONFDIR=\"$(sysconfdir)\" \
 	-DBINDIR=\"$(bindir)\" -DMUTTLOCALEDIR=\"$(datadir)/locale\" \
 	-DHAVE_CONFIG_H=1
 
-AM_CPPFLAGS=-I. -I$(top_srcdir) $(IMAP_INCLUDES) $(SQLITE_INCLUDES) \
+AM_CPPFLAGS=-I. -I$(top_srcdir) $(IMAP_INCLUDES) $(MSQLITE_INCLUDES) \
 	$(GPGME_CFLAGS) -Iintl
 
 EXTRA_mutt_SOURCES = account.c bcache.c crypt-gpgme.c crypt-mod-pgp-classic.c \
